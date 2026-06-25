@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { getSupabase } from "@/lib/supabase";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -23,15 +24,17 @@ export async function POST(request: Request) {
 ${description ? `Owner's description/question: ${description}\n` : ""}
 
 Please provide:
-1. What type of animal you see
-2. Observable health indicators (appearance, posture, visible symptoms if any)
-3. Health assessment and any concerns
-4. Practical recommendations for the owner
-5. A health score from 1-10 (10 being perfectly healthy)
+1. What type of animal you see (species/common name)
+2. The breed or variety if it can be identified from the image — be specific (e.g. "Golden Retriever", "Maine Coon", "Budgerigar"). If the animal has no recognized breed concept (e.g. wild bird, fish, reptile) set breed to null. If it is a mixed breed write "Mixed breed" and note likely mixes in the summary if visible.
+3. Observable health indicators (appearance, posture, coat/skin, eyes, visible symptoms)
+4. Health assessment and any concerns
+5. Practical recommendations for the owner
+6. A health score from 1-10 (10 being perfectly healthy)
 
 Format your response as JSON with this structure:
 {
-  "animalType": "string",
+  "animalType": "string (species, e.g. Dog, Cat, Rabbit)",
+  "breed": "string | null",
   "healthScore": number,
   "healthStatus": "Excellent|Good|Fair|Poor|Critical",
   "observations": ["string"],
@@ -71,6 +74,21 @@ Format your response as JSON with this structure:
     }
 
     const analysis = JSON.parse(jsonMatch[0]);
+
+    const imagePreview = `data:${image.type || "image/jpeg"};base64,${base64Image}`;
+    try {
+      await getSupabase().from("vet_analyses").insert({
+        image_preview: imagePreview,
+        animal_type: analysis.animalType,
+        breed: analysis.breed ?? null,
+        health_score: analysis.healthScore,
+        health_status: analysis.healthStatus,
+        analysis,
+      });
+    } catch (dbErr) {
+      console.error("Supabase insert failed:", dbErr);
+    }
+
     return Response.json({ analysis });
   } catch (error) {
     console.error("Analysis error:", error);

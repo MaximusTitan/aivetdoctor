@@ -4,6 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 interface AnalysisResult {
   animalType: string;
+  breed: string | null;
   healthScore: number;
   healthStatus: "Excellent" | "Good" | "Fair" | "Poor" | "Critical";
   observations: string[];
@@ -147,20 +148,6 @@ export default function Home() {
       }
 
       setResult(data.analysis);
-
-      // persist to history
-      try {
-        const entry = {
-          id: Date.now(),
-          timestamp: new Date().toISOString(),
-          imagePreview: imagePreview,
-          analysis: data.analysis,
-        };
-        const existing = JSON.parse(localStorage.getItem("vetHistory") || "[]");
-        localStorage.setItem("vetHistory", JSON.stringify([entry, ...existing].slice(0, 50)));
-      } catch {
-        // storage quota exceeded — skip silently
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -186,7 +173,7 @@ export default function Home() {
     window.speechSynthesis.cancel();
 
     const lines = [
-      `Health analysis for ${analysis.animalType}.`,
+      `Health analysis for ${analysis.breed ? `${analysis.breed}, a ${analysis.animalType}` : analysis.animalType}.`,
       `Health status: ${analysis.healthStatus}. Score: ${analysis.healthScore} out of 10.`,
       analysis.summary,
     ];
@@ -438,6 +425,9 @@ export default function Home() {
                     <div>
                       <p className="text-xs text-gray-500 uppercase tracking-wide font-medium">Animal</p>
                       <p className="text-lg font-bold text-gray-900 mt-0.5">{result.animalType}</p>
+                      {result.breed && (
+                        <p className="text-sm text-teal-600 font-medium mt-0.5">{result.breed}</p>
+                      )}
                     </div>
                     <span className={`px-3 py-1 rounded-full text-sm font-semibold border ${STATUS_COLORS[result.healthStatus] || "text-gray-600 bg-gray-50 border-gray-200"}`}>
                       {result.healthStatus}

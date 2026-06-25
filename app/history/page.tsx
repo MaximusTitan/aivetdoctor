@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 
 interface AnalysisResult {
   animalType: string;
+  breed: string | null;
   healthScore: number;
   healthStatus: "Excellent" | "Good" | "Fair" | "Poor" | "Critical";
   observations: string[];
@@ -13,9 +14,13 @@ interface AnalysisResult {
 }
 
 interface HistoryEntry {
-  id: number;
-  timestamp: string;
-  imagePreview: string | null;
+  id: string;
+  created_at: string;
+  image_preview: string | null;
+  animal_type: string;
+  breed: string | null;
+  health_score: number;
+  health_status: string;
   analysis: AnalysisResult;
 }
 
@@ -37,36 +42,52 @@ const SCORE_BAR_COLORS: Record<string, string> = {
 
 function formatDate(iso: string) {
   const d = new Date(iso);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
-    " at " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return (
+    d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
+    " at " +
+    d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+  );
 }
 
 export default function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [selected, setSelected] = useState<HistoryEntry | null>(null);
-  const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    setMounted(true);
+  const fetchHistory = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const raw = localStorage.getItem("vetHistory");
-      if (raw) setEntries(JSON.parse(raw));
-    } catch {
-      // corrupted storage
+      const res = await fetch("/api/history");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load history");
+      setEntries(data.entries);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  const deleteEntry = (id: number) => {
-    const updated = entries.filter((e) => e.id !== id);
-    setEntries(updated);
-    localStorage.setItem("vetHistory", JSON.stringify(updated));
-    if (selected?.id === id) setSelected(null);
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
+
+  const deleteEntry = async (id: string) => {
+    const res = await fetch(`/api/history?id=${id}`, { method: "DELETE" });
+    if (res.ok) {
+      setEntries((prev) => prev.filter((e) => e.id !== id));
+      if (selected?.id === id) setSelected(null);
+    }
   };
 
-  const clearAll = () => {
-    setEntries([]);
-    setSelected(null);
-    localStorage.removeItem("vetHistory");
+  const clearAll = async () => {
+    const res = await fetch("/api/history", { method: "DELETE" });
+    if (res.ok) {
+      setEntries([]);
+      setSelected(null);
+    }
   };
 
   return (
@@ -98,7 +119,7 @@ export default function HistoryPage() {
           <div>
             <h2 className="text-2xl font-bold text-gray-900">Analysis History</h2>
             <p className="text-sm text-gray-500 mt-1">
-              {mounted ? `${entries.length} record${entries.length !== 1 ? "s" : ""}` : "Loading…"}
+              {loading ? "Loading…" : `${entries.length} record${entries.length !== 1 ? "s" : ""}`}
             </p>
           </div>
           {entries.length > 0 && (
@@ -111,7 +132,22 @@ export default function HistoryPage() {
           )}
         </div>
 
-        {!mounted ? null : entries.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-24 text-gray-400">
+            <div className="animate-spin text-5xl mb-4">⏳</div>
+            <p className="text-sm">Loading history…</p>
+          </div>
+        ) : error ? (
+          <div className="text-center py-24">
+            <p className="text-red-500 font-medium">{error}</p>
+            <button
+              onClick={fetchHistory}
+              className="mt-4 px-4 py-2 rounded-xl bg-teal-500 text-white text-sm font-semibold hover:bg-teal-600"
+            >
+              Retry
+            </button>
+          </div>
+        ) : entries.length === 0 ? (
           <div className="text-center py-24 text-gray-400">
             <div className="text-6xl mb-4">🐾</div>
             <p className="text-lg font-medium">No analyses yet</p>
@@ -138,10 +174,10 @@ export default function HistoryPage() {
                   }`}
                 >
                   <div className="flex gap-3 items-center">
-                    {entry.imagePreview ? (
+                    {entry.image_preview ? (
                       <img
-                        src={entry.imagePreview}
-                        alt={entry.analysis.animalType}
+                        src={entry.image_preview}
+                        alt={entry.animal_type}
                         className="w-12 h-12 rounded-xl object-cover bg-gray-100 shrink-0"
                       />
                     ) : (
@@ -150,11 +186,18 @@ export default function HistoryPage() {
                       </div>
                     )}
                     <div className="min-w-0">
-                      <p className="font-semibold text-gray-800 text-sm truncate">{entry.analysis.animalType}</p>
-                      <span className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_COLORS[entry.analysis.healthStatus] || "text-gray-600 bg-gray-50 border-gray-200"}`}>
-                        {entry.analysis.healthStatus}
+                      <p className="font-semibold text-gray-800 text-sm truncate">{entry.animal_type}</p>
+                      {entry.breed && (
+                        <p className="text-xs text-teal-600 font-medium truncate">{entry.breed}</p>
+                      )}
+                      <span
+                        className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-xs font-medium border ${
+                          STATUS_COLORS[entry.health_status] || "text-gray-600 bg-gray-50 border-gray-200"
+                        }`}
+                      >
+                        {entry.health_status}
                       </span>
-                      <p className="text-xs text-gray-400 mt-1">{formatDate(entry.timestamp)}</p>
+                      <p className="text-xs text-gray-400 mt-1">{formatDate(entry.created_at)}</p>
                     </div>
                   </div>
                 </button>
@@ -172,11 +215,18 @@ export default function HistoryPage() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <h3 className="text-xl font-bold text-gray-900">{selected.analysis.animalType}</h3>
-                      <p className="text-xs text-gray-400 mt-0.5">{formatDate(selected.timestamp)}</p>
+                      {selected.breed && (
+                        <p className="text-sm text-teal-600 font-medium mt-0.5">{selected.breed}</p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-0.5">{formatDate(selected.created_at)}</p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      <span className={`px-3 py-1 rounded-full text-sm font-semibold border ${STATUS_COLORS[selected.analysis.healthStatus] || "text-gray-600 bg-gray-50 border-gray-200"}`}>
-                        {selected.analysis.healthStatus}
+                      <span
+                        className={`px-3 py-1 rounded-full text-sm font-semibold border ${
+                          STATUS_COLORS[selected.health_status] || "text-gray-600 bg-gray-50 border-gray-200"
+                        }`}
+                      >
+                        {selected.health_status}
                       </span>
                       <button
                         onClick={() => deleteEntry(selected.id)}
@@ -187,10 +237,10 @@ export default function HistoryPage() {
                     </div>
                   </div>
 
-                  {selected.imagePreview && (
+                  {selected.image_preview && (
                     <img
-                      src={selected.imagePreview}
-                      alt={selected.analysis.animalType}
+                      src={selected.image_preview}
+                      alt={selected.animal_type}
                       className="w-full max-h-52 object-contain rounded-xl bg-gray-50"
                     />
                   )}
@@ -206,7 +256,7 @@ export default function HistoryPage() {
                     </div>
                     <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${SCORE_BAR_COLORS[selected.analysis.healthStatus] || "bg-gray-400"}`}
+                        className={`h-full rounded-full ${SCORE_BAR_COLORS[selected.health_status] || "bg-gray-400"}`}
                         style={{ width: `${selected.analysis.healthScore * 10}%` }}
                       />
                     </div>
@@ -220,7 +270,8 @@ export default function HistoryPage() {
                       <ul className="space-y-1.5">
                         {selected.analysis.observations.map((o, i) => (
                           <li key={i} className="text-sm text-gray-600 flex gap-2">
-                            <span className="text-blue-400 shrink-0">•</span>{o}
+                            <span className="text-blue-400 shrink-0">•</span>
+                            {o}
                           </li>
                         ))}
                       </ul>
@@ -233,7 +284,8 @@ export default function HistoryPage() {
                       <ul className="space-y-1.5">
                         {selected.analysis.concerns.map((c, i) => (
                           <li key={i} className="text-sm text-orange-700 flex gap-2">
-                            <span className="shrink-0">•</span>{c}
+                            <span className="shrink-0">•</span>
+                            {c}
                           </li>
                         ))}
                       </ul>
@@ -246,7 +298,8 @@ export default function HistoryPage() {
                       <ul className="space-y-1.5">
                         {selected.analysis.recommendations.map((r, i) => (
                           <li key={i} className="text-sm text-teal-700 flex gap-2">
-                            <span className="shrink-0 font-bold">{i + 1}.</span>{r}
+                            <span className="shrink-0 font-bold">{i + 1}.</span>
+                            {r}
                           </li>
                         ))}
                       </ul>
